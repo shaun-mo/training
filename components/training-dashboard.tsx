@@ -74,6 +74,9 @@ export function TrainingDashboard({ plan }: { plan: PlanDay[] }) {
           priority
           className="h-10 w-auto sm:h-12 dark:invert"
         />
+        {!!today && selected === today ? (
+          <Badge className="absolute top-1/2 right-0 -translate-y-1/2">Today</Badge>
+        ) : null}
       </header>
 
       {!selected ? (
@@ -83,12 +86,9 @@ export function TrainingDashboard({ plan }: { plan: PlanDay[] }) {
       ) : (
         <div className="flex flex-col gap-5">
           {/* Date — top of the body, where the title used to be */}
-          <div className="flex items-center justify-center gap-2 text-center">
-            <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
-              {formatLong(selected)}
-            </h1>
-            {selected === today ? <Badge>Today</Badge> : null}
-          </div>
+          <h1 className="text-center text-2xl font-bold tracking-tight sm:text-3xl">
+            {formatLong(selected)}
+          </h1>
 
           <WeekNav
             weekLabel={`Week ${byDate.get(selected)?.week ?? "?"} of ${totalWeeks}`}
