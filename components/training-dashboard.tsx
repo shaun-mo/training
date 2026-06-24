@@ -8,18 +8,10 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-import { Tabs, TabsList, TabsPanel, TabsTab } from "@/components/ui/tabs"
-import {
   addDays,
+  formatDayNumber,
   formatLong,
-  formatMedium,
+  formatWeekdayShort,
   getTodayISO,
   weekDates,
 } from "@/lib/dates"
@@ -44,7 +36,6 @@ export function TrainingDashboard({ plan }: { plan: PlanDay[] }) {
 
   const [today, setToday] = React.useState<string | null>(null)
   const [selected, setSelected] = React.useState<string | null>(null)
-  const [tab, setTab] = React.useState("day")
 
   React.useEffect(() => {
     const t = getTodayISO(TIME_ZONE)
@@ -63,7 +54,7 @@ export function TrainingDashboard({ plan }: { plan: PlanDay[] }) {
   return (
     <div className="flex flex-col">
       {/* Logo header — "Return to today" sits top-left, centered with the logo */}
-      <header className="relative mb-6 flex items-center justify-center">
+      <header className="relative mb-9 flex items-center justify-center">
         {showReturn ? (
           <button
             onClick={() => select(today!)}
@@ -78,7 +69,7 @@ export function TrainingDashboard({ plan }: { plan: PlanDay[] }) {
           width={214}
           height={282}
           priority
-          className="h-16 w-auto sm:h-20 dark:invert"
+          className="h-14 w-auto sm:h-16 dark:invert"
         />
       </header>
 
@@ -88,53 +79,30 @@ export function TrainingDashboard({ plan }: { plan: PlanDay[] }) {
         </p>
       ) : (
         <div className="flex flex-col gap-5">
-          <DateHeading
-            selected={selected}
-            day={byDate.get(selected)}
-            totalWeeks={totalWeeks}
-            isToday={selected === today}
-            onPrevDay={() => select(addDays(selected, -1))}
-            onNextDay={() => select(addDays(selected, 1))}
+          {/* Date — top of the body, where the title used to be */}
+          <div className="flex items-center justify-center gap-2 text-center">
+            <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+              {formatLong(selected)}
+            </h1>
+            {selected === today ? <Badge>Today</Badge> : null}
+          </div>
+
+          <WeekNav
+            weekLabel={`Week ${byDate.get(selected)?.week ?? "?"} of ${totalWeeks}`}
+            phase={byDate.get(selected)?.phase}
+            onPrev={() => select(addDays(selected, -7))}
+            onNext={() => select(addDays(selected, 7))}
           />
 
-          <Tabs value={tab} onValueChange={(v) => setTab(v as string)}>
-            <TabsList>
-              <TabsTab value="day">Day</TabsTab>
-              <TabsTab value="week">Week</TabsTab>
-              <TabsTab value="plan">Full Plan</TabsTab>
-            </TabsList>
+          <WeekStrip
+            dates={weekDates(selected)}
+            selected={selected}
+            today={today}
+            byDate={byDate}
+            onSelect={select}
+          />
 
-            <TabsPanel value="day">
-              <DayDetail day={byDate.get(selected)} />
-            </TabsPanel>
-
-            <TabsPanel value="week">
-              <WeekView
-                selected={selected}
-                today={today}
-                byDate={byDate}
-                totalWeeks={totalWeeks}
-                onPrevWeek={() => select(addDays(selected, -7))}
-                onNextWeek={() => select(addDays(selected, 7))}
-                onPick={(iso) => {
-                  select(iso)
-                  setTab("day")
-                }}
-              />
-            </TabsPanel>
-
-            <TabsPanel value="plan">
-              <FullPlan
-                plan={plan}
-                selected={selected}
-                today={today}
-                onPick={(iso) => {
-                  select(iso)
-                  setTab("day")
-                }}
-              />
-            </TabsPanel>
-          </Tabs>
+          <DayDetail day={byDate.get(selected)} date={selected} />
         </div>
       )}
     </div>
@@ -143,42 +111,29 @@ export function TrainingDashboard({ plan }: { plan: PlanDay[] }) {
 
 // -----------------------------------------------------------------------------
 
-function DateHeading({
-  selected,
-  day,
-  totalWeeks,
-  isToday,
-  onPrevDay,
-  onNextDay,
+function WeekNav({
+  weekLabel,
+  phase,
+  onPrev,
+  onNext,
 }: {
-  selected: string
-  day: PlanDay | undefined
-  totalWeeks: number
-  isToday: boolean
-  onPrevDay: () => void
-  onNextDay: () => void
+  weekLabel: string
+  phase?: string
+  onPrev: () => void
+  onNext: () => void
 }) {
   return (
-    <div className="flex items-center justify-between gap-2">
-      <Button variant="outline" size="icon" onClick={onPrevDay} aria-label="Previous day">
+    <div className="flex items-center justify-between gap-3">
+      <Button variant="outline" size="icon" onClick={onPrev} aria-label="Previous week">
         <ChevronLeft />
       </Button>
-
       <div className="min-w-0 text-center">
-        <div className="flex items-center justify-center gap-2">
-          <h1 className="truncate text-xl font-semibold tracking-tight sm:text-2xl">
-            {formatLong(selected)}
-          </h1>
-          {isToday ? <Badge>Today</Badge> : null}
-        </div>
-        {day ? (
-          <p className="text-sm text-muted-foreground">
-            Week {day.week} of {totalWeeks} · {day.phase}
-          </p>
+        <p className="truncate text-sm font-medium">{weekLabel}</p>
+        {phase ? (
+          <p className="truncate text-xs text-muted-foreground">{phase}</p>
         ) : null}
       </div>
-
-      <Button variant="outline" size="icon" onClick={onNextDay} aria-label="Next day">
+      <Button variant="outline" size="icon" onClick={onNext} aria-label="Next week">
         <ChevronRight />
       </Button>
     </div>
@@ -186,11 +141,116 @@ function DateHeading({
 }
 
 // -----------------------------------------------------------------------------
-// Day detail — strength first, then endurance, then notes. Each its own card,
-// stacked vertically on every screen size.
+
+function WeekStrip({
+  dates,
+  selected,
+  today,
+  byDate,
+  onSelect,
+}: {
+  dates: string[]
+  selected: string
+  today: string | null
+  byDate: Map<string, PlanDay>
+  onSelect: (iso: string) => void
+}) {
+  return (
+    <div className="grid grid-cols-7 gap-1 sm:gap-2">
+      {dates.map((iso) => {
+        const isSelected = iso === selected
+        const isToday = iso === today
+        const day = byDate.get(iso)
+        return (
+          <button
+            key={iso}
+            onClick={() => onSelect(iso)}
+            aria-current={isToday ? "date" : undefined}
+            aria-pressed={isSelected}
+            className={cn(
+              "flex flex-col items-center gap-1 rounded-lg border px-0.5 py-2 transition-colors",
+              "hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+              isSelected
+                ? "border-transparent bg-primary text-primary-foreground hover:bg-primary"
+                : isToday
+                  ? "border-foreground/40"
+                  : "border-border"
+            )}
+          >
+            <span
+              className={cn(
+                "text-[10px] font-medium tracking-wide uppercase",
+                isSelected ? "text-primary-foreground/80" : "text-muted-foreground"
+              )}
+            >
+              {formatWeekdayShort(iso).slice(0, 2)}
+            </span>
+            <span className="text-sm font-semibold tabular-nums">
+              {formatDayNumber(iso)}
+            </span>
+            <LoadDots day={day} active={isSelected} />
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+function LoadDots({ day, active }: { day?: PlanDay; active: boolean }) {
+  if (!day) return <span className="h-1.5" aria-hidden />
+
+  const strengthLoad = hasValue(day.strengthTag) && day.strengthTag !== "Rest"
+  const enduranceLoad =
+    hasValue(day.enduranceTag) &&
+    day.enduranceTag !== "Rest" &&
+    day.enduranceTag !== "Recovery"
+  const count = (strengthLoad ? 1 : 0) + (enduranceLoad ? 1 : 0)
+
+  if (count === 0) {
+    return (
+      <span
+        aria-hidden
+        className={cn(
+          "h-1.5 w-1.5 rounded-full border",
+          active ? "border-primary-foreground/70" : "border-muted-foreground/60"
+        )}
+      />
+    )
+  }
+  return (
+    <span className="flex h-1.5 items-center gap-0.5" aria-hidden>
+      {Array.from({ length: count }).map((_, i) => (
+        <span
+          key={i}
+          className={cn(
+            "h-1.5 w-1.5 rounded-full",
+            active ? "bg-primary-foreground" : "bg-foreground/70"
+          )}
+        />
+      ))}
+    </span>
+  )
+}
+
+// -----------------------------------------------------------------------------
+// Day detail — strength first (as a checklist), then endurance, then notes.
 // -----------------------------------------------------------------------------
 
-function DayDetail({ day }: { day: PlanDay | undefined }) {
+/** Split a strength workout into individual exercises, dropping the leading
+ *  body-group label (e.g. "Back: ") since that's already shown as a tag. */
+function parseExercises(text: string): string[] {
+  let s = (text ?? "").trim()
+  if (!s) return []
+  const colon = s.indexOf(":")
+  if (colon > -1 && colon <= 20) s = s.slice(colon + 1).trim()
+  s = s.replace(/\s*\.\s*$/, "")
+  return s
+    .split(/,\s*/)
+    .map((x) => x.trim())
+    .filter(Boolean)
+}
+
+function DayDetail({ day, date }: { day: PlanDay | undefined; date: string }) {
   if (!day) {
     return (
       <Card>
@@ -210,7 +270,7 @@ function DayDetail({ day }: { day: PlanDay | undefined }) {
   return (
     <div className="flex flex-col gap-4">
       {showStrength ? (
-        <WorkoutCard kind="Strength" tag={day.strengthTag} body={day.strengthWorkout} />
+        <StrengthCard date={date} tag={day.strengthTag} workout={day.strengthWorkout} />
       ) : null}
       {showEndurance ? (
         <WorkoutCard kind="Endurance" tag={day.enduranceTag} body={day.enduranceWorkout} />
@@ -228,6 +288,96 @@ function DayDetail({ day }: { day: PlanDay | undefined }) {
         </Card>
       ) : null}
     </div>
+  )
+}
+
+function StrengthCard({
+  date,
+  tag,
+  workout,
+}: {
+  date: string
+  tag: string
+  workout: string
+}) {
+  const isRest = tag.trim().toLowerCase() === "rest"
+  const exercises = isRest ? [] : parseExercises(workout)
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="text-base">Strength</CardTitle>
+          {hasValue(tag) ? <Badge variant="secondary">{tag}</Badge> : null}
+        </div>
+      </CardHeader>
+      <CardContent>
+        {exercises.length > 0 ? (
+          <ExerciseChecklist key={date} date={date} exercises={exercises} />
+        ) : (
+          <p className="text-sm whitespace-pre-line">
+            {hasValue(workout) ? workout : "—"}
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function ExerciseChecklist({
+  date,
+  exercises,
+}: {
+  date: string
+  exercises: string[]
+}) {
+  const key = `imtraining:strength:${date}`
+  const [checked, setChecked] = React.useState<boolean[]>(() => {
+    if (typeof window === "undefined") return exercises.map(() => false)
+    try {
+      const raw = window.localStorage.getItem(key)
+      const arr = raw ? (JSON.parse(raw) as boolean[]) : []
+      return exercises.map((_, i) => !!arr[i])
+    } catch {
+      return exercises.map(() => false)
+    }
+  })
+
+  const toggle = (i: number) =>
+    setChecked((prev) => {
+      const next = prev.slice()
+      next[i] = !next[i]
+      try {
+        window.localStorage.setItem(key, JSON.stringify(next))
+      } catch {
+        /* ignore */
+      }
+      return next
+    })
+
+  return (
+    <ul className="flex flex-col gap-2.5">
+      {exercises.map((ex, i) => (
+        <li key={i}>
+          <label className="flex cursor-pointer items-start gap-2.5">
+            <input
+              type="checkbox"
+              checked={checked[i] ?? false}
+              onChange={() => toggle(i)}
+              className="mt-0.5 size-4 shrink-0 accent-primary"
+            />
+            <span
+              className={cn(
+                "text-sm leading-snug",
+                checked[i] && "text-muted-foreground line-through"
+              )}
+            >
+              {ex}
+            </span>
+          </label>
+        </li>
+      ))}
+    </ul>
   )
 }
 
@@ -252,177 +402,5 @@ function WorkoutCard({
         <p className="text-sm whitespace-pre-line">{hasValue(body) ? body : "—"}</p>
       </CardContent>
     </Card>
-  )
-}
-
-// -----------------------------------------------------------------------------
-// Week view — Sunday → Saturday data table for the selected week.
-// -----------------------------------------------------------------------------
-
-function WeekView({
-  selected,
-  today,
-  byDate,
-  totalWeeks,
-  onPrevWeek,
-  onNextWeek,
-  onPick,
-}: {
-  selected: string
-  today: string | null
-  byDate: Map<string, PlanDay>
-  totalWeeks: number
-  onPrevWeek: () => void
-  onNextWeek: () => void
-  onPick: (iso: string) => void
-}) {
-  const dates = weekDates(selected) // Sun → Sat
-  const current = byDate.get(selected)
-
-  return (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between gap-2">
-        <Button variant="outline" size="icon" onClick={onPrevWeek} aria-label="Previous week">
-          <ChevronLeft />
-        </Button>
-        <p className="truncate text-sm font-medium">
-          {current
-            ? `Week ${current.week} of ${totalWeeks} · ${current.phase}`
-            : "Week"}
-        </p>
-        <Button variant="outline" size="icon" onClick={onNextWeek} aria-label="Next week">
-          <ChevronRight />
-        </Button>
-      </div>
-
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Day</TableHead>
-            <TableHead>Strength</TableHead>
-            <TableHead>Endurance</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {dates.map((iso) => {
-            const d = byDate.get(iso)
-            if (!d) {
-              return (
-                <TableRow key={iso}>
-                  <TableCell className="font-medium whitespace-nowrap text-muted-foreground">
-                    {formatMedium(iso)}
-                  </TableCell>
-                  <TableCell colSpan={2} className="text-muted-foreground">
-                    No session
-                  </TableCell>
-                </TableRow>
-              )
-            }
-            return (
-              <ClickableRow
-                key={iso}
-                onPick={() => onPick(iso)}
-                isToday={iso === today}
-                isSelected={iso === selected}
-              >
-                <TableCell className="font-medium whitespace-nowrap">
-                  {formatMedium(iso)}
-                </TableCell>
-                <TableCell>{hasValue(d.strengthTag) ? d.strengthTag : "—"}</TableCell>
-                <TableCell>{hasValue(d.enduranceTag) ? d.enduranceTag : "—"}</TableCell>
-              </ClickableRow>
-            )
-          })}
-        </TableBody>
-      </Table>
-    </div>
-  )
-}
-
-// -----------------------------------------------------------------------------
-// Full plan — scrollable data table of every day.
-// -----------------------------------------------------------------------------
-
-function FullPlan({
-  plan,
-  selected,
-  today,
-  onPick,
-}: {
-  plan: PlanDay[]
-  selected: string
-  today: string | null
-  onPick: (iso: string) => void
-}) {
-  return (
-    <div className="flex flex-col gap-2">
-      <p className="text-xs text-muted-foreground">Tap any day to open it.</p>
-      <div className="max-h-[60vh] overflow-y-auto rounded-lg border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Date</TableHead>
-              <TableHead>Wk</TableHead>
-              <TableHead>Strength</TableHead>
-              <TableHead>Endurance</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {plan.map((d) => (
-              <ClickableRow
-                key={d.date}
-                onPick={() => onPick(d.date)}
-                isToday={d.date === today}
-                isSelected={d.date === selected}
-              >
-                <TableCell className="font-medium whitespace-nowrap">
-                  {formatMedium(d.date)}
-                </TableCell>
-                <TableCell className="text-muted-foreground tabular-nums">
-                  {d.week}
-                </TableCell>
-                <TableCell>{hasValue(d.strengthTag) ? d.strengthTag : "—"}</TableCell>
-                <TableCell>{hasValue(d.enduranceTag) ? d.enduranceTag : "—"}</TableCell>
-              </ClickableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
-    </div>
-  )
-}
-
-// -----------------------------------------------------------------------------
-
-function ClickableRow({
-  onPick,
-  isToday,
-  isSelected,
-  children,
-}: {
-  onPick: () => void
-  isToday: boolean
-  isSelected: boolean
-  children: React.ReactNode
-}) {
-  return (
-    <TableRow
-      role="button"
-      tabIndex={0}
-      onClick={onPick}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault()
-          onPick()
-        }
-      }}
-      className={cn(
-        "cursor-pointer",
-        isSelected && "bg-muted",
-        isToday && !isSelected && "bg-accent/60"
-      )}
-    >
-      {children}
-    </TableRow>
   )
 }
