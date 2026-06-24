@@ -7,6 +7,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   addDays,
   formatDayNumber,
@@ -56,12 +57,14 @@ export function TrainingDashboard({ plan }: { plan: PlanDay[] }) {
       {/* Logo header — "Return to today" sits top-left, centered with the logo */}
       <header className="relative mb-9 flex items-center justify-center">
         {showReturn ? (
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => select(today!)}
-            className="absolute top-1/2 left-0 -translate-y-1/2 text-sm text-muted-foreground hover:text-foreground"
+            className="absolute top-1/2 left-0 -translate-y-1/2 text-muted-foreground"
           >
             ← Return to today
-          </button>
+          </Button>
         ) : null}
         <Image
           src="/ironman-logo.png"
@@ -69,7 +72,7 @@ export function TrainingDashboard({ plan }: { plan: PlanDay[] }) {
           width={214}
           height={282}
           priority
-          className="h-14 w-auto sm:h-16 dark:invert"
+          className="h-10 w-auto sm:h-12 dark:invert"
         />
       </header>
 
@@ -236,16 +239,17 @@ function LoadDots({ day, active }: { day?: PlanDay; active: boolean }) {
 // Day detail — strength first (as a checklist), then endurance, then notes.
 // -----------------------------------------------------------------------------
 
-/** Split a strength workout into individual exercises, dropping the leading
- *  body-group label (e.g. "Back: ") since that's already shown as a tag. */
-function parseExercises(text: string): string[] {
+/** Split a workout into individual steps. Drops the leading group label
+ *  (e.g. "Back: ") since it's already shown as a tag, and splits on commas and
+ *  arrows. Commas inside numbers (e.g. "1,500 yd") are preserved. */
+function parseSteps(text: string): string[] {
   let s = (text ?? "").trim()
   if (!s) return []
   const colon = s.indexOf(":")
   if (colon > -1 && colon <= 20) s = s.slice(colon + 1).trim()
   s = s.replace(/\s*\.\s*$/, "")
   return s
-    .split(/,\s*/)
+    .split(/\s*->\s*|\s*→\s*|,\s+/)
     .map((x) => x.trim())
     .filter(Boolean)
 }
@@ -270,10 +274,22 @@ function DayDetail({ day, date }: { day: PlanDay | undefined; date: string }) {
   return (
     <div className="flex flex-col gap-4">
       {showStrength ? (
-        <StrengthCard date={date} tag={day.strengthTag} workout={day.strengthWorkout} />
+        <ActivityCard
+          kind="Strength"
+          section="strength"
+          date={date}
+          tag={day.strengthTag}
+          workout={day.strengthWorkout}
+        />
       ) : null}
       {showEndurance ? (
-        <WorkoutCard kind="Endurance" tag={day.enduranceTag} body={day.enduranceWorkout} />
+        <ActivityCard
+          kind="Endurance"
+          section="endurance"
+          date={date}
+          tag={day.enduranceTag}
+          workout={day.enduranceWorkout}
+        />
       ) : null}
       {hasValue(day.notes) ? (
         <Card>
@@ -291,29 +307,33 @@ function DayDetail({ day, date }: { day: PlanDay | undefined; date: string }) {
   )
 }
 
-function StrengthCard({
+function ActivityCard({
+  kind,
+  section,
   date,
   tag,
   workout,
 }: {
+  kind: string
+  section: "strength" | "endurance"
   date: string
   tag: string
   workout: string
 }) {
   const isRest = tag.trim().toLowerCase() === "rest"
-  const exercises = isRest ? [] : parseExercises(workout)
+  const steps = isRest ? [] : parseSteps(workout)
 
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between gap-2">
-          <CardTitle className="text-base">Strength</CardTitle>
+          <CardTitle className="text-base">{kind}</CardTitle>
           {hasValue(tag) ? <Badge variant="secondary">{tag}</Badge> : null}
         </div>
       </CardHeader>
       <CardContent>
-        {exercises.length > 0 ? (
-          <ExerciseChecklist key={date} date={date} exercises={exercises} />
+        {steps.length > 0 ? (
+          <Checklist key={`${section}:${date}`} section={section} date={date} steps={steps} />
         ) : (
           <p className="text-sm whitespace-pre-line">
             {hasValue(workout) ? workout : "—"}
@@ -324,22 +344,24 @@ function StrengthCard({
   )
 }
 
-function ExerciseChecklist({
+function Checklist({
+  section,
   date,
-  exercises,
+  steps,
 }: {
+  section: string
   date: string
-  exercises: string[]
+  steps: string[]
 }) {
-  const key = `imtraining:strength:${date}`
+  const key = `imtraining:${section}:${date}`
   const [checked, setChecked] = React.useState<boolean[]>(() => {
-    if (typeof window === "undefined") return exercises.map(() => false)
+    if (typeof window === "undefined") return steps.map(() => false)
     try {
       const raw = window.localStorage.getItem(key)
       const arr = raw ? (JSON.parse(raw) as boolean[]) : []
-      return exercises.map((_, i) => !!arr[i])
+      return steps.map((_, i) => !!arr[i])
     } catch {
-      return exercises.map(() => false)
+      return steps.map(() => false)
     }
   })
 
@@ -356,51 +378,29 @@ function ExerciseChecklist({
     })
 
   return (
-    <ul className="flex flex-col gap-2.5">
-      {exercises.map((ex, i) => (
-        <li key={i}>
-          <label className="flex cursor-pointer items-start gap-2.5">
-            <input
-              type="checkbox"
+    <ul className="flex flex-col gap-3">
+      {steps.map((step, i) => {
+        const id = `chk-${section}-${date}-${i}`
+        return (
+          <li key={i} className="flex items-start gap-2.5">
+            <Checkbox
+              id={id}
               checked={checked[i] ?? false}
-              onChange={() => toggle(i)}
-              className="mt-0.5 size-4 shrink-0 accent-primary"
+              onCheckedChange={() => toggle(i)}
+              className="mt-0.5"
             />
-            <span
+            <label
+              htmlFor={id}
               className={cn(
-                "text-sm leading-snug",
+                "cursor-pointer text-sm leading-snug select-none",
                 checked[i] && "text-muted-foreground line-through"
               )}
             >
-              {ex}
-            </span>
-          </label>
-        </li>
-      ))}
+              {step}
+            </label>
+          </li>
+        )
+      })}
     </ul>
-  )
-}
-
-function WorkoutCard({
-  kind,
-  tag,
-  body,
-}: {
-  kind: string
-  tag: string
-  body: string
-}) {
-  return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between gap-2">
-          <CardTitle className="text-base">{kind}</CardTitle>
-          {hasValue(tag) ? <Badge variant="secondary">{tag}</Badge> : null}
-        </div>
-      </CardHeader>
-      <CardContent>
-        <p className="text-sm whitespace-pre-line">{hasValue(body) ? body : "—"}</p>
-      </CardContent>
-    </Card>
   )
 }
