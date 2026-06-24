@@ -1,111 +1,184 @@
 "use client"
 
 import * as React from "react"
+import Image from "next/image"
 import { ChevronLeft, ChevronRight } from "lucide-react"
 
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import { Tabs, TabsList, TabsPanel, TabsTab } from "@/components/ui/tabs"
 import {
   addDays,
-  formatDayNumber,
   formatLong,
-  formatWeekdayShort,
+  formatMedium,
   getTodayISO,
-  startOfWeek,
   weekDates,
 } from "@/lib/dates"
-import { getProgramDay, isRestDay, isUnplanned } from "@/lib/program"
-import { PROGRAM_WEEKS, TIME_ZONE, type TrainingDay } from "@/lib/training-plan"
+import { hasValue, TIME_ZONE, type PlanDay } from "@/lib/plan-types"
 import { cn } from "@/lib/utils"
 
-export function TrainingDashboard() {
-  // `selected` starts null so the server and client agree on first paint; the
-  // real "today" (Central time) is resolved on the client after mount.
+export function TrainingDashboard({ plan }: { plan: PlanDay[] }) {
+  const { byDate, first, last, totalWeeks } = React.useMemo(() => {
+    const byDate = new Map(plan.map((d) => [d.date, d]))
+    return {
+      byDate,
+      first: plan[0]?.date ?? "",
+      last: plan[plan.length - 1]?.date ?? "",
+      totalWeeks: plan.reduce((m, d) => Math.max(m, d.week), 0),
+    }
+  }, [plan])
+
+  const clamp = React.useCallback(
+    (iso: string) => (iso < first ? first : iso > last ? last : iso),
+    [first, last]
+  )
+
   const [today, setToday] = React.useState<string | null>(null)
   const [selected, setSelected] = React.useState<string | null>(null)
+  const [tab, setTab] = React.useState("day")
 
   React.useEffect(() => {
-    const iso = getTodayISO(TIME_ZONE)
-    setToday(iso)
-    setSelected(iso)
-  }, [])
+    const t = getTodayISO(TIME_ZONE)
+    setToday(t)
+    setSelected(clamp(t))
+  }, [clamp])
 
-  if (!today || !selected) {
-    return (
-      <p className="py-16 text-center text-sm text-muted-foreground">
-        Loading today&rsquo;s workout…
-      </p>
-    )
-  }
+  const select = React.useCallback(
+    (iso: string) => setSelected(clamp(iso)),
+    [clamp]
+  )
 
-  const week = weekDates(selected)
-  const weekAnchor = getProgramDay(startOfWeek(selected))
+  const todayInRange = !!today && today >= first && today <= last
+  const showReturn = !!today && !!selected && selected !== today && todayInRange
 
   return (
-    <div className="flex flex-col gap-5">
-      <WeekNav
-        weekLabel={
-          weekAnchor.inProgram
-            ? `Week ${weekAnchor.weekNumber} of ${PROGRAM_WEEKS}`
-            : "Off-program week"
-        }
-        weekFocus={weekAnchor.week?.focus}
-        onPrev={() => setSelected(addDays(selected, -7))}
-        onNext={() => setSelected(addDays(selected, 7))}
-        onToday={() => setSelected(today)}
-        showToday={selected !== today}
-      />
+    <div className="flex flex-col">
+      {/* Logo header — "Return to today" sits top-left, centered with the logo */}
+      <header className="relative mb-6 flex items-center justify-center">
+        {showReturn ? (
+          <button
+            onClick={() => select(today!)}
+            className="absolute top-1/2 left-0 -translate-y-1/2 text-sm text-muted-foreground hover:text-foreground"
+          >
+            ← Return to today
+          </button>
+        ) : null}
+        <Image
+          src="/ironman-logo.png"
+          alt="Ironman"
+          width={214}
+          height={282}
+          priority
+          className="h-16 w-auto sm:h-20 dark:invert"
+        />
+      </header>
 
-      <WeekStrip
-        days={week}
-        selected={selected}
-        today={today}
-        onSelect={setSelected}
-      />
+      {!selected ? (
+        <p className="py-16 text-center text-sm text-muted-foreground">
+          Loading today&rsquo;s workout…
+        </p>
+      ) : (
+        <div className="flex flex-col gap-5">
+          <DateHeading
+            selected={selected}
+            day={byDate.get(selected)}
+            totalWeeks={totalWeeks}
+            isToday={selected === today}
+            onPrevDay={() => select(addDays(selected, -1))}
+            onNextDay={() => select(addDays(selected, 1))}
+          />
 
-      <DayDetail iso={selected} isToday={selected === today} />
+          <Tabs value={tab} onValueChange={(v) => setTab(v as string)}>
+            <TabsList>
+              <TabsTab value="day">Day</TabsTab>
+              <TabsTab value="week">Week</TabsTab>
+              <TabsTab value="plan">Full Plan</TabsTab>
+            </TabsList>
+
+            <TabsPanel value="day">
+              <DayDetail day={byDate.get(selected)} />
+            </TabsPanel>
+
+            <TabsPanel value="week">
+              <WeekView
+                selected={selected}
+                today={today}
+                byDate={byDate}
+                totalWeeks={totalWeeks}
+                onPrevWeek={() => select(addDays(selected, -7))}
+                onNextWeek={() => select(addDays(selected, 7))}
+                onPick={(iso) => {
+                  select(iso)
+                  setTab("day")
+                }}
+              />
+            </TabsPanel>
+
+            <TabsPanel value="plan">
+              <FullPlan
+                plan={plan}
+                selected={selected}
+                today={today}
+                onPick={(iso) => {
+                  select(iso)
+                  setTab("day")
+                }}
+              />
+            </TabsPanel>
+          </Tabs>
+        </div>
+      )}
     </div>
   )
 }
 
 // -----------------------------------------------------------------------------
 
-function WeekNav({
-  weekLabel,
-  weekFocus,
-  onPrev,
-  onNext,
-  onToday,
-  showToday,
+function DateHeading({
+  selected,
+  day,
+  totalWeeks,
+  isToday,
+  onPrevDay,
+  onNextDay,
 }: {
-  weekLabel: string
-  weekFocus?: string
-  onPrev: () => void
-  onNext: () => void
-  onToday: () => void
-  showToday: boolean
+  selected: string
+  day: PlanDay | undefined
+  totalWeeks: number
+  isToday: boolean
+  onPrevDay: () => void
+  onNextDay: () => void
 }) {
   return (
-    <div className="flex items-center justify-between gap-3">
-      <Button variant="outline" size="icon" onClick={onPrev} aria-label="Previous week">
+    <div className="flex items-center justify-between gap-2">
+      <Button variant="outline" size="icon" onClick={onPrevDay} aria-label="Previous day">
         <ChevronLeft />
       </Button>
 
       <div className="min-w-0 text-center">
-        <p className="truncate text-sm font-medium">{weekLabel}</p>
-        {weekFocus ? (
-          <p className="truncate text-xs text-muted-foreground">{weekFocus}</p>
-        ) : showToday ? (
-          <button
-            onClick={onToday}
-            className="text-xs text-muted-foreground underline-offset-4 hover:underline"
-          >
-            Back to today
-          </button>
+        <div className="flex items-center justify-center gap-2">
+          <h1 className="truncate text-xl font-semibold tracking-tight sm:text-2xl">
+            {formatLong(selected)}
+          </h1>
+          {isToday ? <Badge>Today</Badge> : null}
+        </div>
+        {day ? (
+          <p className="text-sm text-muted-foreground">
+            Week {day.week} of {totalWeeks} · {day.phase}
+          </p>
         ) : null}
       </div>
 
-      <Button variant="outline" size="icon" onClick={onNext} aria-label="Next week">
+      <Button variant="outline" size="icon" onClick={onNextDay} aria-label="Next day">
         <ChevronRight />
       </Button>
     </div>
@@ -113,161 +186,243 @@ function WeekNav({
 }
 
 // -----------------------------------------------------------------------------
+// Day detail — strength first, then endurance, then notes. Each its own card,
+// stacked vertically on every screen size.
+// -----------------------------------------------------------------------------
 
-function WeekStrip({
-  days,
-  selected,
-  today,
-  onSelect,
-}: {
-  days: string[]
-  selected: string
-  today: string
-  onSelect: (iso: string) => void
-}) {
+function DayDetail({ day }: { day: PlanDay | undefined }) {
+  if (!day) {
+    return (
+      <Card>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            No workout found for this day.
+          </p>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  const showStrength = hasValue(day.strengthWorkout) || hasValue(day.strengthTag)
+  const showEndurance =
+    hasValue(day.enduranceWorkout) || hasValue(day.enduranceTag)
+
   return (
-    <div className="grid grid-cols-7 gap-1 sm:gap-2">
-      {days.map((iso) => {
-        const isSelected = iso === selected
-        const isToday = iso === today
-        const { day } = getProgramDay(iso)
-        return (
-          <button
-            key={iso}
-            onClick={() => onSelect(iso)}
-            aria-current={isToday ? "date" : undefined}
-            aria-pressed={isSelected}
-            className={cn(
-              "flex flex-col items-center gap-1 rounded-lg border px-0.5 py-2 transition-colors",
-              "hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-              isSelected
-                ? "border-transparent bg-primary text-primary-foreground hover:bg-primary"
-                : isToday
-                  ? "border-foreground/40"
-                  : "border-border"
-            )}
-          >
-            <span
-              className={cn(
-                "text-[10px] font-medium tracking-wide uppercase",
-                isSelected ? "text-primary-foreground/80" : "text-muted-foreground"
-              )}
-            >
-              {formatWeekdayShort(iso).slice(0, 2)}
-            </span>
-            <span className="text-sm font-semibold tabular-nums">
-              {formatDayNumber(iso)}
-            </span>
-            <LoadDots day={day} active={isSelected} />
-          </button>
-        )
-      })}
+    <div className="flex flex-col gap-4">
+      {showStrength ? (
+        <WorkoutCard kind="Strength" tag={day.strengthTag} body={day.strengthWorkout} />
+      ) : null}
+      {showEndurance ? (
+        <WorkoutCard kind="Endurance" tag={day.enduranceTag} body={day.enduranceWorkout} />
+      ) : null}
+      {hasValue(day.notes) ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Notes</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm whitespace-pre-line text-muted-foreground">
+              {day.notes}
+            </p>
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   )
 }
 
-/** Small dots summarising the day's load at a glance. */
-function LoadDots({ day, active }: { day: TrainingDay | null; active: boolean }) {
-  if (isUnplanned(day)) {
-    return <span className="h-1.5" aria-hidden />
-  }
-  if (isRestDay(day)) {
-    return (
-      <span
-        aria-hidden
-        className={cn(
-          "h-1.5 w-1.5 rounded-full border",
-          active ? "border-primary-foreground/70" : "border-muted-foreground/60"
-        )}
-      />
-    )
-  }
+function WorkoutCard({
+  kind,
+  tag,
+  body,
+}: {
+  kind: string
+  tag: string
+  body: string
+}) {
   return (
-    <span className="flex h-1.5 items-center gap-0.5" aria-hidden>
-      {day!.sessions.map((_, i) => (
-        <span
-          key={i}
-          className={cn(
-            "h-1.5 w-1.5 rounded-full",
-            active ? "bg-primary-foreground" : "bg-foreground/70"
-          )}
-        />
-      ))}
-    </span>
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="text-base">{kind}</CardTitle>
+          {hasValue(tag) ? <Badge variant="secondary">{tag}</Badge> : null}
+        </div>
+      </CardHeader>
+      <CardContent>
+        <p className="text-sm whitespace-pre-line">{hasValue(body) ? body : "—"}</p>
+      </CardContent>
+    </Card>
+  )
+}
+
+// -----------------------------------------------------------------------------
+// Week view — Sunday → Saturday data table for the selected week.
+// -----------------------------------------------------------------------------
+
+function WeekView({
+  selected,
+  today,
+  byDate,
+  totalWeeks,
+  onPrevWeek,
+  onNextWeek,
+  onPick,
+}: {
+  selected: string
+  today: string | null
+  byDate: Map<string, PlanDay>
+  totalWeeks: number
+  onPrevWeek: () => void
+  onNextWeek: () => void
+  onPick: (iso: string) => void
+}) {
+  const dates = weekDates(selected) // Sun → Sat
+  const current = byDate.get(selected)
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between gap-2">
+        <Button variant="outline" size="icon" onClick={onPrevWeek} aria-label="Previous week">
+          <ChevronLeft />
+        </Button>
+        <p className="truncate text-sm font-medium">
+          {current
+            ? `Week ${current.week} of ${totalWeeks} · ${current.phase}`
+            : "Week"}
+        </p>
+        <Button variant="outline" size="icon" onClick={onNextWeek} aria-label="Next week">
+          <ChevronRight />
+        </Button>
+      </div>
+
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Day</TableHead>
+            <TableHead>Strength</TableHead>
+            <TableHead>Endurance</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {dates.map((iso) => {
+            const d = byDate.get(iso)
+            if (!d) {
+              return (
+                <TableRow key={iso}>
+                  <TableCell className="font-medium whitespace-nowrap text-muted-foreground">
+                    {formatMedium(iso)}
+                  </TableCell>
+                  <TableCell colSpan={2} className="text-muted-foreground">
+                    No session
+                  </TableCell>
+                </TableRow>
+              )
+            }
+            return (
+              <ClickableRow
+                key={iso}
+                onPick={() => onPick(iso)}
+                isToday={iso === today}
+                isSelected={iso === selected}
+              >
+                <TableCell className="font-medium whitespace-nowrap">
+                  {formatMedium(iso)}
+                </TableCell>
+                <TableCell>{hasValue(d.strengthTag) ? d.strengthTag : "—"}</TableCell>
+                <TableCell>{hasValue(d.enduranceTag) ? d.enduranceTag : "—"}</TableCell>
+              </ClickableRow>
+            )
+          })}
+        </TableBody>
+      </Table>
+    </div>
+  )
+}
+
+// -----------------------------------------------------------------------------
+// Full plan — scrollable data table of every day.
+// -----------------------------------------------------------------------------
+
+function FullPlan({
+  plan,
+  selected,
+  today,
+  onPick,
+}: {
+  plan: PlanDay[]
+  selected: string
+  today: string | null
+  onPick: (iso: string) => void
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-xs text-muted-foreground">Tap any day to open it.</p>
+      <div className="max-h-[60vh] overflow-y-auto rounded-lg border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Date</TableHead>
+              <TableHead>Wk</TableHead>
+              <TableHead>Strength</TableHead>
+              <TableHead>Endurance</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {plan.map((d) => (
+              <ClickableRow
+                key={d.date}
+                onPick={() => onPick(d.date)}
+                isToday={d.date === today}
+                isSelected={d.date === selected}
+              >
+                <TableCell className="font-medium whitespace-nowrap">
+                  {formatMedium(d.date)}
+                </TableCell>
+                <TableCell className="text-muted-foreground tabular-nums">
+                  {d.week}
+                </TableCell>
+                <TableCell>{hasValue(d.strengthTag) ? d.strengthTag : "—"}</TableCell>
+                <TableCell>{hasValue(d.enduranceTag) ? d.enduranceTag : "—"}</TableCell>
+              </ClickableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
   )
 }
 
 // -----------------------------------------------------------------------------
 
-const DISCIPLINE_LABEL: Record<string, string> = {
-  Swim: "Swim",
-  Bike: "Bike",
-  Run: "Run",
-  Brick: "Brick",
-  Strength: "Strength",
-  Rest: "Rest",
-  Other: "Other",
-}
-
-function DayDetail({ iso, isToday }: { iso: string; isToday: boolean }) {
-  const { inProgram, weekNumber, day } = getProgramDay(iso)
-
+function ClickableRow({
+  onPick,
+  isToday,
+  isSelected,
+  children,
+}: {
+  onPick: () => void
+  isToday: boolean
+  isSelected: boolean
+  children: React.ReactNode
+}) {
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between gap-2">
-          <h2 className="text-lg font-semibold">{formatLong(iso)}</h2>
-          {isToday ? (
-            <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground">
-              Today
-            </span>
-          ) : null}
-        </div>
-        <p className="text-sm text-muted-foreground">
-          {inProgram ? `Week ${weekNumber} of ${PROGRAM_WEEKS}` : "Outside the program"}
-        </p>
-      </CardHeader>
-
-      <CardContent>
-        {!inProgram ? (
-          <p className="text-sm text-muted-foreground">
-            This date is outside the {PROGRAM_WEEKS}-week program window.
-          </p>
-        ) : isUnplanned(day) ? (
-          <p className="text-sm text-muted-foreground">
-            No workout entered for this day yet.
-          </p>
-        ) : (
-          <div className="flex flex-col gap-4">
-            {day!.note ? (
-              <p className="text-sm text-muted-foreground italic">{day!.note}</p>
-            ) : null}
-            {day!.sessions.map((session, i) => (
-              <div
-                key={i}
-                className="flex flex-col gap-1 border-l-2 border-border pl-3"
-              >
-                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                  <span className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
-                    {DISCIPLINE_LABEL[session.discipline] ?? session.discipline}
-                  </span>
-                  <span className="font-medium">{session.title}</span>
-                  {session.duration ? (
-                    <span className="text-sm text-muted-foreground">
-                      · {session.duration}
-                    </span>
-                  ) : null}
-                </div>
-                {session.details ? (
-                  <p className="text-sm whitespace-pre-line text-muted-foreground">
-                    {session.details}
-                  </p>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+    <TableRow
+      role="button"
+      tabIndex={0}
+      onClick={onPick}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault()
+          onPick()
+        }
+      }}
+      className={cn(
+        "cursor-pointer",
+        isSelected && "bg-muted",
+        isToday && !isSelected && "bg-accent/60"
+      )}
+    >
+      {children}
+    </TableRow>
   )
 }

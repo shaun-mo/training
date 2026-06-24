@@ -39,23 +39,35 @@ export function diffDays(a: string, b: string): number {
   return Math.round(ms / 86_400_000)
 }
 
-/** ISO date of the Monday on or before the given date. */
+/** ISO date of the Sunday on or before the given date (weeks start Sunday). */
 export function startOfWeek(iso: string): string {
   const d = parse(iso)
   const dow = d.getUTCDay() // 0 = Sun … 6 = Sat
-  const deltaToMonday = (dow + 6) % 7
-  return addDays(iso, -deltaToMonday)
+  return addDays(iso, -dow)
 }
 
-/** The 7 ISO dates Monday → Sunday for the week containing `iso`. */
+/** The 7 ISO dates Sunday → Saturday for the week containing `iso`. */
 export function weekDates(iso: string): string[] {
-  const monday = startOfWeek(iso)
-  return Array.from({ length: 7 }, (_, i) => addDays(monday, i))
+  const sunday = startOfWeek(iso)
+  return Array.from({ length: 7 }, (_, i) => addDays(sunday, i))
 }
 
 const LONG = new Intl.DateTimeFormat("en-US", {
   weekday: "long",
   month: "long",
+  day: "numeric",
+  timeZone: "UTC",
+})
+const FULL = new Intl.DateTimeFormat("en-US", {
+  weekday: "long",
+  month: "long",
+  day: "numeric",
+  year: "numeric",
+  timeZone: "UTC",
+})
+const MED = new Intl.DateTimeFormat("en-US", {
+  weekday: "short",
+  month: "short",
   day: "numeric",
   timeZone: "UTC",
 })
@@ -66,6 +78,16 @@ const MONTH_SHORT = new Intl.DateTimeFormat("en-US", { month: "short", timeZone:
 /** e.g. "Tuesday, June 23" */
 export function formatLong(iso: string): string {
   return LONG.format(parse(iso))
+}
+
+/** e.g. "Tuesday, June 23, 2026" */
+export function formatFull(iso: string): string {
+  return FULL.format(parse(iso))
+}
+
+/** e.g. "Sun, Nov 22" */
+export function formatMedium(iso: string): string {
+  return MED.format(parse(iso))
 }
 
 /** e.g. "Tue" */
